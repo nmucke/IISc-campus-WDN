@@ -1,6 +1,6 @@
 [![Build Status](https://github.com/nmucke/IISc-campus-WDN/actions/workflows/CI.yml/badge.svg?event=push)](https://github.com/nmucke/IISc-campus-WDN/actions)
 
-# hello-world-package
+# Machine Learning for Water Distribution Networks
 
 This is a simple python package template.  
 It uses pip for installation, flake8 for linting, pytest for testing, and coverage for monitoring test coverage.
