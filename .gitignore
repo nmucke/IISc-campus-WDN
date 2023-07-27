@@ -12,6 +12,7 @@
 *.avi
 *.mov
 *.csv
+*.xlsx
 
 # Exclude MacOS files
 *.DS_Store
