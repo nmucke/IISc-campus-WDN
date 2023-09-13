@@ -13,6 +13,15 @@
 *.mov
 *.csv
 *.xlsx
+*.xls
+*.pdf
+*.docx
+*.doc
+*.csv
+*.png
+*.pkl
+*.h5
+
 
 # Exclude MacOS files
 *.DS_Store

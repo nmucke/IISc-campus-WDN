@@ -1,0 +1,99 @@
+import pdb
+import networkx as nx
+import numpy as np
+import pickle
+import gpflow
+import os
+from utils.preprocessing import load_PEMS
+
+
+G, data_train, data_test, data = load_PEMS(num_train=100)
+pdb.set_trace()
+
+import warn
+import tensorflow as tf
+import tensorflow_probability as tfp
+from tqdm.notebook import trange
+from scipy import sparse
+
+from utils.preprocessing import load_PEMS
+from utils.plotting import plot_PEMS
+
+from graph_matern.kernels.graph_matern_kernel import GraphMaternKernel
+from graph_matern.kernels.graph_diffusion_kernel import GraphDiffusionKernel
+
+# Do not use CUDA
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+dtype = tf.float64
+gpflow.config.set_default_float(dtype)
+
+np.random.seed(1111)
+num_eigenpairs = 500
+dataset = 'PeMS-Bay-new'
+num_train = 250
+
+G, data_train, data_test, data = load_PEMS(num_train=num_train)
+
+x_train, y_train = data_train
+x_test, y_test = data_test
+x, y = data
+
+orig_mean, orig_std = np.mean(y_train), np.std(y_train)
+y_train = (y_train-orig_mean)/orig_std
+y_test = (y_test-orig_mean)/orig_std
+
+# Save/load the eigenpairs to save up some computational time
+eigenpairs_path = "eigenpairs_{}.pkl".format(dataset)
+
+if not os.path.isfile(eigenpairs_path):
+    # Compute the eigenpairs
+    laplacian = sparse.csr_matrix(nx.laplacian_matrix(G), dtype=np.float64)
+    if num_eigenpairs >= len(G):
+        warn.warn("Number of features is greater than number of vertices. Number of features will be reduced.")
+        num_eigenpairs = len(G)
+
+    eigenvalues, eigenvectors = tf.linalg.eigh(laplacian.toarray())
+    eigenvectors, eigenvalues = eigenvectors[:, :num_eigenpairs], eigenvalues[:num_eigenpairs]
+
+    with open(eigenpairs_path, "wb") as f:
+        pickle.dump((eigenvectors[:, :num_eigenpairs].numpy(), eigenvalues.numpy()), f)
+
+with open(eigenpairs_path, "rb") as f:
+    eigenvectors, eigenvalues = pickle.load(f)
+eigenvalues, eigenvectors = tf.convert_to_tensor(eigenvalues, dtype=dtype), tf.convert_to_tensor(eigenvectors, dtype)
+
+
+N = len(G)
+vertex_dim = x_train.shape[1]-1
+point_kernel = gpflow.kernels.Matern32()
+kernel = GraphMaternKernel((eigenvectors, eigenvalues), 
+                           nu=3/2, 
+                           kappa=5, 
+                           sigma_f=1, 
+                           vertex_dim=vertex_dim, 
+                           point_kernel=point_kernel, 
+                           dtype=dtype)
+# To use the diffusion kernel uncomment the following line
+# kernel = GraphDiffusionKernel((eigenvectors, eigenvalues), kappa, sigma_f, vertex_dim=vertex_dim, point_kernel=point_kernel, dtype=dtype)
+
+def optimize_GPR(model, train_steps):
+    loss = model.training_loss
+    trainable_variables = model.trainable_variables
+
+    adam_opt = tf.optimizers.Adam()
+    adam_opt.minimize(loss=loss, var_list=trainable_variables)
+
+    t = trange(train_steps - 1)
+    for step in t:
+        opt_step(adam_opt, loss, trainable_variables)
+        if step % 200 == 0:
+            t.set_postfix({'likelihood': -model.training_loss().numpy()})
+
+@tf.function
+def opt_step(opt, loss, variables):
+    opt.minimize(loss, var_list=variables)
+
+model = gpflow.models.GPR(data=(x_train, y_train), kernel=kernel, noise_variance=0.01)
+optimize_GPR(model, 12000)
+gpflow.utilities.print_summary(model)
