@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 def main():
 
     # Load epanet model
-    wn = wntr.network.WaterNetworkModel('epanet_input_files/IISc_campus.inp')
+    wn = wntr.network.WaterNetworkModel('epanet_input_files/IISc_Epanet_Revised281123.inp')
 
     # Solve epanet model
     sim = wntr.sim.EpanetSimulator(wn)
@@ -24,27 +24,35 @@ def main():
     # Get edge weights
     length = wn.query_link_attribute('length')
 
+    plt.figure()
+    for i in range(results.node['pressure'].values.shape[1]):
+        plt.plot(results.node['pressure'].values[:, i])
+    plt.xlabel('Time (s)')
+    plt.ylabel('Pressure (m)')
+    plt.show()
+    
+
     plt.figure(figsize=(20, 20))
     nx.draw_networkx(
         G,
         pos=pos,
         node_size=100,
-        node_color=results.node['pressure'].values[0],
-        edge_color=results.link['flowrate'].values[0],
+        node_color=results.node['pressure'].values[30],
+        edge_color=results.link['flowrate'].values[30],
         width=4.,
         with_labels=False,
     )
     # Add colorbar
     sm = plt.cm.ScalarMappable(
         cmap='viridis', 
-        norm=plt.Normalize(vmin=results.node['pressure'].values.min(), vmax=results.node['pressure'].values.max()),
+        norm=plt.Normalize(vmin=results.node['pressure'].values[30].min(), vmax=results.node['pressure'].values[30].max()),
         )
     plt.colorbar(sm, label='Pressure (m)')
 
     # Add colorbar
     sm = plt.cm.ScalarMappable(
         cmap='viridis', 
-        norm=plt.Normalize(vmin=results.link['flowrate'].values.min(), vmax=results.link['flowrate'].values.max()),
+        norm=plt.Normalize(vmin=results.link['flowrate'].values[30].min(), vmax=results.link['flowrate'].values[30].max()),
         )
     plt.colorbar(sm, label='Flow rate (m3/s)')
     

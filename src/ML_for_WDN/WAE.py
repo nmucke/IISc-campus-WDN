@@ -77,6 +77,7 @@ class Encoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
+
         x = self.input_layer(x)
         x = self.activation(x)
         #x = self.input_batch_norm(x)
@@ -137,7 +138,7 @@ class Decoder(nn.Module):
             pars = torch.squeeze(pars, dim=1)
 
             x = torch.cat((x, pars), dim=1)
-
+        
         x = self.input_layer(x)
         x = self.activation(x)
         #x = self.input_batch_norm(x)

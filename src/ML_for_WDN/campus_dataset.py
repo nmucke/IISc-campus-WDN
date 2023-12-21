@@ -33,7 +33,6 @@ class CampusDataset(torch.utils.data.Dataset):
 
         self.dataframes = dataframes
 
-        
         leak_pipe = {
             'leak_1': ('J-32', 'J-86'),#, 'P-49'),#'P-2',
             'leak_2': ('J-44', 'J-35'),#), 'P-2'),#'P-49',

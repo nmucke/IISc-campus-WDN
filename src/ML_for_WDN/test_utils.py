@@ -12,96 +12,7 @@ from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_ma
 
 from ML_for_WDN.campus_dataset import CampusDataset
 from ML_for_WDN.data_utils import clean_dataframes, load_data
-from ML_for_WDN.models.WAE import WassersteinAutoencoder
-
-from tqdm import tqdm
-
-from ML_for_WDN.train_utils import MMD
-
-torch.set_default_dtype(torch.float32)
-
-LATENT_DIM = 4
-SUPERVISED = False
-
-ENCODER_ARGS = {
-    'input_dim': 18,
-    'hidden_dims': [18, 18, 16, 16],
-    'latent_dim': LATENT_DIM,
-}
-
-DECODER_ARGS = {
-    'latent_dim': LATENT_DIM,
-    'hidden_dims': [16, 16, 18, 18],
-    'output_dim': 18,
-    'num_pars': 4 if SUPERVISED else None,
-}
-
-
-DATA_FILES_TRAIN = [
-    'data/data_no_leak.xlsx',
-    'data/data_leak_1.xlsx',
-    'data/data_leak_2.xlsx',
-    'data/data_leak_3.xlsx',
-]
-
-DATA_FILES_TEST = [
-    'data/data_no_leak.xlsx',
-    'data/data_leak_1.xlsx',
-    'data/data_leak_2.xlsx',
-    'data/data_leak_3.xlsx',
-]
-
-def train_WAE(
-    dataloader: torch.utils.data.DataLoader,
-    model: WassersteinAutoencoder,
-    optimizer: torch.optim.Optimizer,
-    loss_fn: nn.Module,
-    epochs: int,
-    device: torch.device,
-) -> None:
-    
-    model.train()
-
-    for epoch in range(epochs):
-        pbar = tqdm(
-                enumerate(dataloader),
-                total=int(len(dataloader.dataset)/dataloader.batch_size),
-                bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'
-            )
-        
-        total_loss = 0
-        for batch_idx, data in pbar:
-            
-            if model.decoder.num_pars is not None:
-                data, pars = data[0].to(device), data[1].to(device)
-            else:
-                data = data.to(device)
-                pars = None
-            
-            optimizer.zero_grad()
-            
-            latent = model.encoder(data)
-
-            z = torch.randn_like(latent)
-            latent_loss = MMD(latent, z, kernel='rbf', device=device)
-
-            output = model.decoder(latent, pars)
-            loss = loss_fn(output, data) + 1e-3*latent_loss
-            
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-            if batch_idx % 50 == 0:
-                pbar.set_description(f'Epoch {epoch+1}/{epochs} | Loss: {loss.item():.4f} | Latent: {latent_loss.item():.4f}')
-        
-        total_loss /= len(dataloader)
-
-        
-    model.eval()
-
-    return None
+from ML_for_WDN.WAE import WassersteinAutoencoder
 
 def get_train_WAE_error_and_latents(
     dataloader: torch.utils.data.DataLoader,
@@ -121,7 +32,7 @@ def get_train_WAE_error_and_latents(
             latent = model.encoder(data)
             output = model.decoder(latent, pars)
 
-            train_loss = (output - data).pow(2).sum(dim=-1).detach().numpy()
+            train_loss = torch.sqrt((output - data).pow(2).sum(dim=-1)).detach().numpy()
 
             train_loss_list.append(train_loss)
             latent_list.append(latent.detach().numpy())
@@ -155,7 +66,7 @@ def test_WAE_anomaly(
             latent = model.encoder(data)
             output = model.decoder(latent)
 
-            test_loss = (output - data).pow(2).sum(dim=-1).detach().numpy()
+            test_loss = torch.sqrt((output - data).pow(2).sum(dim=-1)).detach().numpy()
 
             test_error[key] = test_loss
             latent_dict[key] = latent.detach().numpy()
@@ -223,58 +134,7 @@ def test_WAE_location(
     return test_loss, cm
 
 
-def main():
 
-    dataframes = []
-
-    for data_file in DATA_FILES_TRAIN:
-        df = load_data(data_file, train=True, fraction=1.0)
-        dataframes.append(df)
-        
-    dataframes = clean_dataframes(dataframes)
-
-    train_dataframes = [df.iloc[:int(0.8*len(df))] for df in dataframes]
-    test_dataframes = [df.iloc[int(0.8*len(df)):] for df in dataframes]
-
-    dataset = CampusDataset(
-        dataframes=train_dataframes,
-        with_leak=True if SUPERVISED else False,
-    )
-
-    preprocessor = StandardScaler().fit(dataset.dataframes.values)
-
-    dataset.preprocessor = preprocessor
-
-    # Create a dataloader
-    train_dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=1024,
-        shuffle=True,
-        num_workers=4,
-    )
-
-    # Create the model
-    model = WassersteinAutoencoder(
-        encoder_args=ENCODER_ARGS,
-        decoder_args=DECODER_ARGS,
-    )
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-8)
-
-    loss_fn = nn.MSELoss()
-    epochs = 500
-
-    device = 'cpu'#torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-
-    train_WAE(
-        dataloader=train_dataloader,
-        model=model,
-        optimizer=optimizer,
-        loss_fn=loss_fn,
-        epochs=epochs,
-        device=device,
-    )
 
     model.to('cpu')
 
@@ -332,6 +192,8 @@ def main():
 
 
         print(f'Accuracy Score: {accuracy}') 
+
+        
         disp = ConfusionMatrixDisplay(
             confusion_matrix=cm,
             display_labels=['No leak', 'Leak'],
@@ -361,7 +223,3 @@ def main():
             plt.legend()
         plt.show()
 
-
-
-if __name__ == '__main__':
-    main()
