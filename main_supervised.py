@@ -15,7 +15,7 @@ from sklearn.svm import SVC
 
 
 from ML_for_WDN.data_utils import clean_dataframes, load_data
-from ML_for_WDN.models import SupervisedReconstructionLeakDetector
+from ML_for_WDN.models import SupervisedReconstructionLeakDetector, SupervisedLinearRegressionLeakDetector
 
 
 torch.set_default_dtype(torch.float32)
@@ -104,11 +104,7 @@ def main():
     #    device='cpu',
     #)
 
-    model = SVC(
-        C=1e-2,
-        kernel='rbf',
-        gamma=1e-2,
-    )
+    model = SupervisedLinearRegressionLeakDetector()
 
     pipeline = Pipeline([
         ('scaler',  MinMaxScaler()),

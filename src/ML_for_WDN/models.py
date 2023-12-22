@@ -4,10 +4,11 @@ import sklearn
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.ensemble import IsolationForest
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from ML_for_WDN.WAE import WassersteinAutoencoder
 from ML_for_WDN.NN_utils import train_WAE
@@ -21,6 +22,7 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
         NN_train_args: dict,
         anomaly_detection_args: dict,
         device: str,
+        verbose: bool = False,
     ):
         
         self.encoder_args = encoder_args
@@ -28,7 +30,10 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
         self.NN_train_args = NN_train_args
         self.anomaly_detection_args = anomaly_detection_args
         self.device = device
-        
+        self.verbose = verbose
+    
+    def __str__(self) -> str:
+        return 'UnsupervisedLeakDetector'
 
     def fit(
         self, 
@@ -44,15 +49,17 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
             decoder_args=self.decoder_args,
         )
 
-        print('########## Training stage 1 ##########')
-        print('\n')
-        print('Training autoencoder without leak data')
-        print('\n')
-        print('Autoencoder architecture:')
-        print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
-        print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
-        print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
-        print('\n')
+        if self.verbose:
+
+            print('########## Training stage 1 ##########')
+            print('\n')
+            print('Training autoencoder without leak data')
+            print('\n')
+            print('Autoencoder architecture:')
+            print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
+            print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
+            print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
+            print('\n')
 
         train_WAE(
             data=X,
@@ -61,15 +68,16 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
             device=self.device,
         )
 
-        print('\n')
-        print('Autoencoder training complete')
-        print('\n')
+        if self.verbose:
+            print('\n')
+            print('Autoencoder training complete')
+            print('\n')
 
-        print('########## Training stage 2 ##########')
-        print('\n')
+            print('########## Training stage 2 ##########')
+            print('\n')
 
-        print('Training anomaly detector using autoencoder')
-        print('\n')
+            print('Training anomaly detector using autoencoder')
+            print('\n')
 
 
         self.latents = self.model.encoder(torch.tensor(X, dtype=torch.float32)).detach().numpy()
@@ -104,8 +112,9 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
         )
         self.reconstruction_anomaly_detector.fit(reconstruction_errors.reshape(-1, 1))
         
-        print('Anomaly detector training complete')
-        print('\n')
+        if self.verbose:
+            print('Anomaly detector training complete')
+            print('\n')
 
         return self
     
@@ -134,18 +143,6 @@ class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
         anomaly_scores[anomaly_scores < 0] = -1 # outliers are marked as -1
         anomaly_scores[anomaly_scores > 0] = 1 # inliers are marked as 1
 
-        '''
-        # compute one-sided running average
-        anomaly_scores = pd.Series(anomaly_scores)
-        anomaly_scores_rolling = anomaly_scores.rolling(window=100).mean()
-        anomaly_scores_rolling.iloc[0:100] = anomaly_scores.iloc[0:100]
-
-        anomaly_scores = anomaly_scores_rolling.values
-        anomaly_scores[anomaly_scores < 0] = -1 # outliers are marked as -1
-        anomaly_scores[anomaly_scores > 0] = 1 # inliers are marked as 1     
-        pdb.set_trace()   
-        '''
-        
         return anomaly_scores
     
 
@@ -158,13 +155,17 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
         decoder_args: dict,
         NN_train_args: dict,
         device: str,
+        verbose: bool = False,
     ):
         
         self.encoder_args = encoder_args
         self.decoder_args = decoder_args
         self.NN_train_args = NN_train_args
         self.device = device
+        self.verbose = verbose
         
+    def __str__(self) -> str:
+        return 'SupervisedReconstructionLeakDetector'
 
     def fit(
         self, 
@@ -180,15 +181,17 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
             decoder_args=self.decoder_args,
         )
 
-        print('########## Training stage 1 ##########')
-        print('\n')
-        print('Training autoencoder without leak data')
-        print('\n')
-        print('Autoencoder architecture:')
-        print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
-        print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
-        print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
-        print('\n')
+        if self.verbose:
+
+            print('########## Training stage 1 ##########')
+            print('\n')
+            print('Training autoencoder without leak data')
+            print('\n')
+            print('Autoencoder architecture:')
+            print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
+            print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
+            print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
+            print('\n')
 
         train_WAE(
             data=X,
@@ -198,15 +201,16 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
             supervised_pars=y,
         )
 
-        print('\n')
-        print('Autoencoder training complete')
-        print('\n')
+        if self.verbose:
+            print('\n')
+            print('Autoencoder training complete')
+            print('\n')
 
-        print('########## Training stage 2 ##########')
-        print('\n')
+            print('########## Training stage 2 ##########')
+            print('\n')
 
-        print('Training anomaly detector using autoencoder')
-        print('\n')
+            print('Training anomaly detector using autoencoder')
+            print('\n')
 
 
     
@@ -251,13 +255,17 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
         decoder_args: dict,
         NN_train_args: dict,
         device: str,
+        verbose: bool = False,
     ):
         
         self.encoder_args = encoder_args
         self.decoder_args = decoder_args
         self.NN_train_args = NN_train_args
         self.device = device
-        
+        self.verbose = verbose
+    
+    def __str__(self) -> str:
+        return 'SupervisedLatentLeakDetector'
 
     def fit(
         self, 
@@ -273,15 +281,16 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
             decoder_args=self.decoder_args,
         )
 
-        print('########## Training stage 1 ##########')
-        print('\n')
-        print('Training autoencoder without leak data')
-        print('\n')
-        print('Autoencoder architecture:')
-        print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
-        print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
-        print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
-        print('\n')
+        if self.verbose:
+            print('########## Training stage 1 ##########')
+            print('\n')
+            print('Training autoencoder without leak data')
+            print('\n')
+            print('Autoencoder architecture:')
+            print(f'- Latent dimension: {self.encoder_args["latent_dim"]}')
+            print(f'- Encoder hidden dimensions: {self.encoder_args["hidden_dims"]}')
+            print(f'- Decoder hidden dimensions: {self.decoder_args["hidden_dims"]}')
+            print('\n')
 
         train_WAE(
             data=X,
@@ -290,15 +299,17 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
             device=self.device,
         )
 
-        print('\n')
-        print('Autoencoder training complete')
-        print('\n')
 
-        print('########## Training stage 2 ##########')
-        print('\n')
+        if self.verbose:
+            print('\n')
+            print('Autoencoder training complete')
+            print('\n')
 
-        print('Training anomaly detector using autoencoder')
-        print('\n')
+            print('########## Training stage 2 ##########')
+            print('\n')
+
+            print('Training anomaly detector using autoencoder')
+            print('\n')
 
 
         self.latents = self.model.encoder(torch.tensor(X, dtype=torch.float32)).detach().numpy()
@@ -323,3 +334,172 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
         leak_location_indices = self.latent_classifier.predict(latents)
 
         return leak_location_indices#.detach().numpy()
+    
+
+
+class SupervisedLinearRegressionLeakDetector(BaseEstimator, ClassifierMixin):
+    """Leak detector based on linear regression residual
+    
+    The model is trained in two stages:
+    1. Train linear regression models for each pair of sensors
+    2. Train a logistic regression classifier based on linear regression residual
+
+    The sensor data, X, is split into two parts: flow rate sensor data and pressure sensor data.
+    The dimensions of X is (num_samples, num_sensors*2), where num_sensors is the number of sensors.
+    The first num_sensors columns of X are the flow rate sensor data and the last num_sensors columns
+    are the pressure sensor data.
+
+    The target data, y, is a vector of integers, where each integer represents a leak location.
+    The leak location is encoded as follows:
+    - 0: No leak
+    - 1: Leak location 1
+    - 2: Leak location 2
+    - 3: Leak location 3
+
+    Parameters
+    ----------
+    model_args: dict
+        Dictionary of arguments for the model
+
+    verbose: bool
+        If True, print training progress
+
+    Attributes
+    ----------
+    num_sensors: int
+        Number of sensors in the dataset
+
+    sensor_pair_list: list
+        List of all possible pairs of sensors
+
+    linear_regression_models: dict
+        Dictionary of linear regression models with sensor pair, (i, j), as key
+
+    logistic_regression_classifier: LogisticRegression
+        Logistic regression classifier trained on linear regression residual
+
+    """
+
+    def __init__(
+        self, 
+        model_args: dict = None,
+        verbose: bool = False,
+    ):
+        
+        self.model_args = model_args
+        self.verbose = verbose
+
+    def __str__(self) -> str:
+        return 'SupervisedLinearRegressionLeakDetector'
+
+    def fit(
+        self, 
+        X: np.ndarray,
+        y: np.ndarray,
+    ):
+    
+        self.num_sensors = X.shape[1]//2
+
+        if self.verbose:
+            print('########## Training stage 1 ##########')
+            print('\n')
+            print('Training linear regression without leak data')
+
+        # Get all possible pairs of sensors
+        self.sensor_pair_list = []
+        for i in range(self.num_sensors):
+            for j in range(self.num_sensors):
+                if i != j:
+                    self.sensor_pair_list.append((i, j))
+
+        # Train linear regression models for each pair of sensors        
+        # Define deictionary of linear regression models with sensor pair, (i, j), as key 
+        self.linear_regression_models = {}
+        for sensor_pair in self.sensor_pair_list:
+
+            # Define linear regression model
+            self.linear_regression_models[sensor_pair] = LinearRegression()
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X[:, sensor_pair]
+            pressure_data = X[:, pressure_ids[0]] - X[:, pressure_ids[1]]  
+
+            # Train linear regression model
+            self.linear_regression_models[sensor_pair].fit(
+                flow_rate_data, 
+                pressure_data,
+            )
+        
+        if self.verbose:
+            print('\n')
+            print('Linear regression training complete')
+            print('\n')
+
+            print('########## Training stage 2 ##########')
+            print('\n')
+            
+            print('Training logistic regression classifier based on linear regression residual')
+
+        # Get linear regression residuals
+        linear_regression_residuals = np.zeros((X.shape[0], len(self.sensor_pair_list)))
+        for i, sensor_pair in enumerate(self.sensor_pair_list):
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X[:, sensor_pair]
+            pressure_data = X[:, pressure_ids[0]] - X[:, pressure_ids[1]]
+
+            # Get linear regression residual
+            pressure_pred = self.linear_regression_models[sensor_pair].predict(flow_rate_data)
+
+            # Store linear regression residual
+            linear_regression_residuals[:, i] = pressure_data - pressure_pred
+
+        # Train logistic regression classifier
+        logistic_regression_args = {
+            'penalty': 'l2',
+            'C': 1e-2,
+            'solver': 'lbfgs',
+            'max_iter': 1000,
+        }
+        
+        self.logistic_regression_classifier = LogisticRegression(**logistic_regression_args)
+        self.logistic_regression_classifier.fit(linear_regression_residuals, y)
+
+        if self.verbose:
+            print('\n')
+            print('Logistic regression classifier training complete')
+            print('\n')
+
+        return self
+
+    
+    def predict(self, X: np.ndarray):
+
+        # Get linear regression residuals
+        linear_regression_residuals = np.zeros((X.shape[0], len(self.sensor_pair_list)))
+        for i, sensor_pair in enumerate(self.sensor_pair_list):
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X[:, sensor_pair]
+            pressure_data = X[:, pressure_ids[0]] - X[:, pressure_ids[1]]  
+
+            # Get linear regression residual
+            pressure_pred = self.linear_regression_models[sensor_pair].predict(flow_rate_data)
+
+            # Store linear regression residual
+            linear_regression_residuals[:, i] = pressure_data - pressure_pred
+
+        # Predict leak location using logistic regression classifier
+        leak_location_preds = self.logistic_regression_classifier.predict(linear_regression_residuals)
+
+        return leak_location_preds
+    
