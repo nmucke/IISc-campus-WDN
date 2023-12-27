@@ -1,8 +1,10 @@
 import pdb
 import pandas as pd
 import sklearn
+from sklearn import pipeline
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
+from sklearn.preprocessing import PolynomialFeatures
 import torch
 import matplotlib.pyplot as plt
 
@@ -500,6 +502,181 @@ class SupervisedLinearRegressionLeakDetector(BaseEstimator, ClassifierMixin):
 
         # Predict leak location using logistic regression classifier
         leak_location_preds = self.logistic_regression_classifier.predict(linear_regression_residuals)
+
+        return leak_location_preds
+    
+class SupervisedPolynomialRegressionLeakDetector(BaseEstimator, ClassifierMixin):
+    """Leak detector based on linear regression residual
+    
+    The model is trained in two stages:
+    1. Train polynomial regression models for each pair of sensors
+    2. Train a logistic regression classifier based on linear regression residual
+
+    The sensor data, X, is split into two parts: flow rate sensor data and pressure sensor data.
+    The dimensions of X is (num_samples, num_sensors*2), where num_sensors is the number of sensors.
+    The first num_sensors columns of X are the flow rate sensor data and the last num_sensors columns
+    are the pressure sensor data.
+
+    The target data, y, is a vector of integers, where each integer represents a leak location.
+    The leak location is encoded as follows:
+    - 0: No leak
+    - 1: Leak location 1
+    - 2: Leak location 2
+    - 3: Leak location 3
+
+    Parameters
+    ----------
+    model_args: dict
+        Dictionary of arguments for the model
+
+    verbose: bool
+        If True, print training progress
+
+    Attributes
+    ----------
+    num_sensors: int
+        Number of sensors in the dataset
+
+    sensor_pair_list: list
+        List of all possible pairs of sensors
+
+    linear_regression_models: dict
+        Dictionary of polynomial regression models with sensor pair, (i, j), as key
+
+    logistic_regression_classifier: LogisticRegression
+        Logistic regression classifier trained on linear regression residual
+
+    """
+
+    def __init__(
+        self, 
+        model_args: dict = None,
+        verbose: bool = False,
+    ):
+        
+        self.model_args = model_args
+        self.verbose = verbose
+
+    def __str__(self) -> str:
+        return 'SupervisedPolynomialRegressionLeakDetector'
+
+    def fit(
+        self, 
+        X: np.ndarray,
+        y: np.ndarray,
+    ):
+    
+        self.num_sensors = X.shape[1]//2
+
+        X_no_leak = X[y == 0]
+
+
+        if self.verbose:
+            print('########## Training stage 1 ##########')
+            print('\n')
+            print('Training polynomial regression without leak data')
+
+        # Get all possible pairs of sensors
+        self.sensor_pair_list = []
+        for i in range(self.num_sensors):
+            for j in range(self.num_sensors):
+                if i != j:
+                    self.sensor_pair_list.append((i, j))
+
+        # Train polynomial regression models for each pair of sensors        
+        # Define deictionary of polynomial regression models with sensor pair, (i, j), as key 
+        self.polynomial_regression_models = {}
+        for sensor_pair in self.sensor_pair_list:
+
+            # Define polynomial regression model
+            self.polynomial_regression_models[sensor_pair] = pipeline.Pipeline([
+                ('poly', PolynomialFeatures(degree=2)),
+                ('linear', LinearRegression()),
+            ])            
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X_no_leak[:, sensor_pair]
+            pressure_data = X_no_leak[:, pressure_ids[0]] - X_no_leak[:, pressure_ids[1]]  
+
+            # Train linear regression model
+            self.polynomial_regression_models[sensor_pair].fit(
+                flow_rate_data, 
+                pressure_data,
+            )
+        
+        if self.verbose:
+            print('\n')
+            print('Linear regression training complete')
+            print('\n')
+
+            print('########## Training stage 2 ##########')
+            print('\n')
+            
+            print('Training logistic regression classifier based on linear regression residual')
+
+        # Get polynomial regression residuals
+        regression_residuals = np.zeros((X.shape[0], len(self.sensor_pair_list)))
+        for i, sensor_pair in enumerate(self.sensor_pair_list):
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X[:, sensor_pair]
+            pressure_data = X[:, pressure_ids[0]] - X[:, pressure_ids[1]]
+
+            # Get linear regression residual
+            pressure_pred = self.polynomial_regression_models[sensor_pair].predict(flow_rate_data)
+
+            # Store linear regression residual
+            regression_residuals[:, i] = pressure_data - pressure_pred
+
+        # Train logistic regression classifier
+        logistic_regression_args = {
+            'penalty': 'l2',
+            'C': 1e-2,
+            'solver': 'lbfgs',
+            'max_iter': 1000,
+        }
+        
+        self.logistic_regression_classifier = pipeline.Pipeline([
+            ('scaler', sklearn.preprocessing.StandardScaler()),
+            ('logistic', LogisticRegression(**logistic_regression_args)),
+        ])
+        self.logistic_regression_classifier.fit(regression_residuals, y)
+
+        if self.verbose:
+            print('\n')
+            print('Logistic regression classifier training complete')
+            print('\n')
+
+        return self
+
+    
+    def predict(self, X: np.ndarray):
+
+        # Get linear regression residuals
+        regression_residuals = np.zeros((X.shape[0], len(self.sensor_pair_list)))
+        for i, sensor_pair in enumerate(self.sensor_pair_list):
+
+            # Get pressure sensors ids
+            pressure_ids = (sensor_pair[0] + self.num_sensors, sensor_pair[1] + self.num_sensors)
+
+            # Get flow rate and pressure difference data
+            flow_rate_data = X[:, sensor_pair]
+            pressure_data = X[:, pressure_ids[0]] - X[:, pressure_ids[1]]
+
+            # Get linear regression residual
+            pressure_pred = self.polynomial_regression_models[sensor_pair].predict(flow_rate_data)
+
+            # Store linear regression residual
+            regression_residuals[:, i] = pressure_data - pressure_pred
+
+        # Predict leak location using logistic regression classifier
+        leak_location_preds = self.logistic_regression_classifier.predict(regression_residuals)
 
         return leak_location_preds
     
