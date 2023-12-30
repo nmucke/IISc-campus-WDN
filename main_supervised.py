@@ -13,6 +13,10 @@ from sklearn.ensemble import RandomForestClassifier
 
 from ML_for_WDN.data_utils import clean_dataframes, load_data
 
+from ML_for_WDN.prerna_model import (
+    PrernaModel
+)
+
 from ML_for_WDN.models import (
     SupervisedReconstructionLeakDetector,
     SupervisedLatentLeakDetector,
@@ -66,18 +70,21 @@ def main():
 
     '''
 
-    df_train = pd.read_csv('data/training_data.csv')
-    df_test = pd.read_csv('data/testing_data.csv')
 
-    X_train = df_train.iloc[:, :-1].values
-    y_train = df_train.iloc[:, -1].values
+    df_train = pd.concat(pd.read_excel('data/leak_train_11.xlsx', sheet_name=None), ignore_index=True)
+    df_test = pd.concat(pd.read_excel('data/leak_test_11.xlsx', sheet_name=None), ignore_index=True)
 
-    X_test = df_test.iloc[:, :-1].values
-    y_test = df_test.iloc[:, -1].values
+    #df_train = pd.read_csv('data/leak_train_11.csv')
+    #df_test = pd.read_csv('data/leak_test_11.csv')
 
-    # Swap columns 0-10 with 10-20
-    X_train[:, 0:10], X_train[:, 10:20] = X_train[:, 10:20], X_train[:, 0:10].copy()
-    X_test[:, 0:10], X_test[:, 10:20] = X_test[:, 10:20], X_test[:, 0:10].copy()
+    X_train = df_train.loc[:, df_train.columns != 'leak_link']
+    y_train = df_train['leak_link']
+    
+    X_test = df_test.loc[:, df_test.columns != 'leak_link']
+    y_test = df_test['leak_link']
+
+    #X_train[:, 0:num_sensors], X_train[:, num_sensors:] = X_train[:, num_sensors:].copy(), X_train[:, 0:num_sensors].copy()
+    #X_test[:, 0:num_sensors], X_test[:, num_sensors:] = X_test[:, num_sensors:].copy(), X_test[:, 0:num_sensors].copy()
 
 
     '''
@@ -137,11 +144,20 @@ def main():
     print(f'y_train: {y_train.shape}')
     print(f'y_test: {y_test.shape}')
 
+    prerna_model_args = {
+        'model_args': {},
+        'classifier': 'logistic_regression',
+        'verbose': False,
+    }
+
     logistic_regression_args = {
         'penalty': 'l2',
         'C': 1e-2,
         'solver': 'lbfgs',
         'max_iter': 1000,
+        'multi_class': 'multinomial',
+        'class_weight': 'balanced',
+        'max_iter': 5000
     }
         
     svc_args = {
@@ -199,18 +215,18 @@ def main():
     linear_regression_args = {}
 
     model_list = [
+        PrernaModel(**prerna_model_args),
         #LogisticRegression(**logistic_regression_args),
         #SVC(**svc_args),
         #RandomForestClassifier(**rf_args),
         #SupervisedReconstructionLeakDetector(**reconstruction_WAE_args),
         #SupervisedLatentLeakDetector(**latent_WAE_args),
         #SupervisedLinearRegressionLeakDetector(**linear_regression_args),
-        SupervisedPolynomialRegressionLeakDetector(**linear_regression_args),
+        #SupervisedPolynomialRegressionLeakDetector(**linear_regression_args),
     ]
 
     for model in model_list:
         pipeline = Pipeline([
-            ('scaler',  StandardScaler()),
             ('model', model),
         ])
 
@@ -226,9 +242,9 @@ def main():
         cm = confusion_matrix(y_test, preds)
         print(f'{model}: Accuracy: {accuracy_score(y_test, preds):0.3f}')
 
-        #disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Leak 1', 'Leak 2', 'Leak 3'])
-        #disp.plot()
-        #plt.show()
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Leak 0', 'Leak 1', 'Leak 2', 'Leak 3'])
+        disp.plot()
+        plt.show()
         
 
 if __name__ == '__main__':
