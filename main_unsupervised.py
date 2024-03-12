@@ -1,139 +1,160 @@
 import pdb
 import numpy as np
 import pandas as pd
-import networkx as nx
-import wntr
-import torch
+from sklearn.neural_network import MLPClassifier
 import torch.nn as nn
 
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix
 from sklearn.pipeline import Pipeline
-
+from sklearn.ensemble import IsolationForest
+from sklearn.svm import OneClassSVM 
+from sklearn.neighbors import LocalOutlierFactor
 
 from ML_for_WDN.data_utils import clean_dataframes, load_data
-from ML_for_WDN.models import UnsupervisedLeakDetector
+
+from ML_for_WDN.prerna_model import (
+    PrernaModel
+)
 
 
-torch.set_default_dtype(torch.float32)
+from ML_for_WDN.models import (
+    ClassifierMajorityVote
+)
 
-LATENT_DIM = 8
-SUPERVISED = False
-
-ENCODER_ARGS = {
-    'hidden_dims': [16, 12, 8],
-    'latent_dim': LATENT_DIM,
-}
-
-DECODER_ARGS = {
-    'latent_dim': LATENT_DIM,
-    'hidden_dims': [8, 12, 16],
-}
-
-
-DATA_FILES_TRAIN = [
-    'data/data_no_leak.xlsx',
-]
-
-DATA_FILES_TEST = [
-    'data/data_leak_1.xlsx',
-    'data/data_leak_2.xlsx',
-    'data/data_leak_3.xlsx',
-]
 
 
 def main():
 
-    columns_to_use = [
-        'FM01_flow', 'FM02_head', 'FM03_flow', 'FM05_flow', 'FM06_flow', 'FM08_flow', 'FM09_flow', 'FM11_flow', 'FM13_flow',
-        'FM01_head', 'FM02_flow', 'FM03_head', 'FM05_head', 'FM06_head', 'FM08_head', 'FM09_head', 'FM11_head', 'FM13_head',
+    X_train = pd.read_excel('data/leak_train.xlsx')
+    df_test = pd.read_excel('data/leak_test.xlsx')
+
+    #df_train = pd.concat(pd.read_excel('data/leak_train.xlsx', sheet_name=None), ignore_index=True)
+    #df_test = pd.concat(pd.read_excel('data/leak_test.xlsx', sheet_name=None), ignore_index=True)
+
+    #df_train = pd.read_csv('data/leak_train_11.csv')
+    #df_test = pd.read_csv('data/leak_test_11.csv')
+
+    X_train = X_train[X_train['leak_link'] == 0]
+    X_train = X_train.loc[:, X_train.columns != 'leak_link']
+        
+    X_test = df_test.loc[:, df_test.columns != 'leak_link']
+    y_test = df_test['leak_link']
+    y_test = y_test.astype(int)
+
+    print(f'X_train: {X_train.shape}')
+    print(f'X_test: {X_test.shape}')
+    print(f'y_test: {y_test.shape}')
+
+    isolation_forest_args = {
+        'n_estimators': 100,
+        'contamination': 0.01,
+        'random_state': 42,
+        'n_jobs': -1,
+    }
+
+    one_class_svm_args = {
+        'kernel': 'rbf',
+        'nu': 0.01,
+        'gamma': 0.1,
+    }
+
+    local_outlier_factor_args = {
+        'n_neighbors': 20,
+        'contamination': 0.01,
+        'n_jobs': -1,
+        'novelty': True,
+    }
+
+    model_list = [
+        ClassifierMajorityVote(IsolationForest(**isolation_forest_args)),
+        ClassifierMajorityVote(OneClassSVM(**one_class_svm_args)),
+        ClassifierMajorityVote(LocalOutlierFactor(**local_outlier_factor_args)),
     ]
 
-    # Train data
-    dataframes = []
-    for data_file in DATA_FILES_TRAIN:
-        df = load_data(data_file)
-        dataframes.append(df)
+    model_names = [
+        'IsolationForest',
+        'OneClassSVM',
+        'LocalOutlierFactor',
+    ]
+
+    model_save_names = [
+        'isolation_forest',
+        'one_class_svm',
+        'local_outlier_factor',
+    ]
+
+    '''
+    random_ids = np.random.choice(
+        X_train.shape[0], 
+        size=3000, 
+        replace=False
+    )
+    X_train = X_train.iloc[random_ids, :]  
+    '''
     
-    dataframes = clean_dataframes(
-        dataframes,
-        columns_to_use=columns_to_use,
-    )
-    train_data = dataframes[0]
 
-    test_data = train_data.iloc[-5000:, :]
-    train_data = train_data.iloc[:-5000, :]
+    num_test_samples = 3000
+    num_samples_pr_test = 30
+    
+    for model in model_list:
+            
+        model.fit(
+            X=X_train,
+        )
+                     
 
-    train_data = train_data.values
+    preds = {key: [] for key in model_names}
+    true_vals = []
+    for leak in y_test.unique():
 
-    # Test data
-    dataframes = []
-    for data_file in DATA_FILES_TEST:
-        df = load_data(data_file)
-        dataframes.append(df)
-
-    dataframes = clean_dataframes(
-        dataframes,
-        columns_to_use=columns_to_use,
-    )
-    dataframes = pd.concat(dataframes, ignore_index=True)
-
-    test_data = pd.concat([test_data, dataframes], ignore_index=True)
-    test_data = test_data.values
-
-    targets = np.zeros((test_data.shape[0]))
-    targets[0:5000] = 1
-    targets[5000:] = -1
-
-
-    NN_args = {
-        'encoder_args': ENCODER_ARGS,
-        'decoder_args': DECODER_ARGS,
-    }
-    NN_train_args = {
-        'epochs': 1000,
-        'batch_size': 512,
-        'lr': 5e-3,
-        'weight_decay': 1e-4,
-        'loss_fn': nn.MSELoss(),
-    }
-    anomaly_detection_args = {
-    }
-    model = UnsupervisedLeakDetector(
-        **NN_args,
-        NN_train_args=NN_train_args,
-        anomaly_detection_args=anomaly_detection_args,
-        device='cpu',
-    )
-
-    pipeline = Pipeline([
-        ('scaler',  StandardScaler()),
-        ('model', model),
-    ])
-
-    pipeline.fit(
-        X=train_data,
-    )
-
-    preds = pipeline.predict(
-        X=test_data,
-    )
-    cm = confusion_matrix(targets, preds)
-    print(f'Accuracy: {accuracy_score(targets, preds):0.3f}')
-    print(f'Recall: {cm[1,1]/(cm[1,1]+cm[1,0])}')
-    print(f'Precision: {cm[1,1]/(cm[1,1]+cm[0,1])}')
+        X_test_leak = X_test[y_test==leak]
         
-    disp = ConfusionMatrixDisplay(
-        confusion_matrix=cm,
-        display_labels=['leak', 'No Leak'],
-    )
-    disp.plot()
-    plt.show()
+        if leak == 0:
+            true_vals_leak = np.ones((num_test_samples,))
+        else:
+            true_vals_leak = -np.ones((num_test_samples,))
+        true_vals_leak = true_vals_leak.astype(int)
+        true_vals.append(true_vals_leak)
 
+        for i in range(num_test_samples):
 
+            random_ids = np.random.choice(
+                X_test_leak.shape[0], 
+                size=num_samples_pr_test, 
+                replace=False
+            )
 
+            X_test_batch = X_test_leak.iloc[random_ids, :]
 
+            for (model, model_name, model_save_name) in zip(model_list, model_names, model_save_names):
+                preds_leak = model.predict(
+                    X=X_test_batch,
+                )
+
+                preds[model_name].append(preds_leak)
+    
+
+    true_vals = np.concatenate(true_vals, axis=0)
+
+    for (model_name, model_save_name) in zip(model_names, model_save_names):
+        preds[model_name] = np.array(preds[model_name])
+
+        cm = confusion_matrix(true_vals, preds[model_name])
+        print(f'{model_name}: Accuracy: {accuracy_score(true_vals, preds[model_name]):0.3f}')
+
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Leak', 'No leak'])
+        disp.plot()
+        plt.title(f'{model_name}, Accuracy: {accuracy_score(true_vals, preds[model_name]):0.3f}')
+                    
+        #ax.set_title(f'{model_name}, Accuracy: {accuracy_score(true_vals, preds[model_name]):0.3f}')
+        # labels, title and ticks
+        plt.savefig(f'figures/confusion_matrix_{model_save_name}.pdf')
+
+        plt.show()
+
+        
 
 if __name__ == '__main__':
     main()

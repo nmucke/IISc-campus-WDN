@@ -1,6 +1,7 @@
 import pdb
 import numpy as np
 import pandas as pd
+from sklearn.neural_network import MLPClassifier
 import torch.nn as nn
 
 import matplotlib.pyplot as plt
@@ -10,6 +11,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 from ML_for_WDN.data_utils import clean_dataframes, load_data
 
@@ -17,127 +19,30 @@ from ML_for_WDN.prerna_model import (
     PrernaModel
 )
 
+
 from ML_for_WDN.models import (
     SupervisedReconstructionLeakDetector,
     SupervisedLatentLeakDetector,
     SupervisedLinearRegressionLeakDetector,
-    SupervisedPolynomialRegressionLeakDetector
+    SupervisedPolynomialRegressionLeakDetector,
+    ClassifierMajorityVote
 )
 
 def main():
 
 
-    '''
-    leak_train_data_path = 'data/leak_train.xlsx'
-    no_leak_train_data_path = 'data/data_base_demand_train_1.xlsx'
-
-    leak_test_data_path = 'data/leak_test.xlsx'
-    no_leak_test_data_path = 'data/data_base_demand_test.xlsx'
-
-    df_leak_train = pd.concat(pd.read_excel(leak_train_data_path, sheet_name=None), ignore_index=True)
-    df_no_leak_train = pd.concat(pd.read_excel(no_leak_train_data_path, sheet_name=None), ignore_index=True)
-
-    df_leak_test = pd.concat(pd.read_excel(leak_test_data_path, sheet_name=None), ignore_index=True)
-    df_no_leak_test = pd.concat(pd.read_excel(no_leak_test_data_path, sheet_name=None), ignore_index=True)
-    
-
-
-    X_leak_train = df_leak_train.iloc[:, 23:]
-    X_no_leak_train = df_no_leak_train
-    X_train = pd.concat([X_leak_train, X_no_leak_train], axis=0)
-
-    X_leak_test = df_leak_test.iloc[:, 23:]
-    X_no_leak_test = df_no_leak_test
-    X_test = pd.concat([X_leak_test, X_no_leak_test], axis=0)
-
-    y_leak_train = df_leak_train.iloc()[:, 0]
-    y_no_leak_train = np.zeros((df_no_leak_train.shape[0],))
-    y_train = np.concatenate((y_leak_train, y_no_leak_train), axis=0)
-    y_train = y_train.astype(int)
-
-    y_leak_test = df_leak_test.iloc()[:, 0]
-    y_no_leak_test = np.zeros((df_no_leak_test.shape[0],))
-    y_test = np.concatenate((y_leak_test, y_no_leak_test), axis=0)
-    y_test = y_test.astype(int)
-
-    X_train = X_train.values
-    X_test = X_test.values
-
-    # Swap columns 0-10 with 10-20
-    X_train[:, 0:10], X_train[:, 10:20] = X_train[:, 10:20], X_train[:, 0:10].copy()
-    X_test[:, 0:10], X_test[:, 10:20] = X_test[:, 10:20], X_test[:, 0:10].copy()
-
-
-    '''
-
-
-    df_train = pd.concat(pd.read_excel('data/leak_train_11.xlsx', sheet_name=None), ignore_index=True)
-    df_test = pd.concat(pd.read_excel('data/leak_test_11.xlsx', sheet_name=None), ignore_index=True)
-
-    #df_train = pd.read_csv('data/leak_train_11.csv')
-    #df_test = pd.read_csv('data/leak_test_11.csv')
+    df_train = pd.read_excel('data/leak_train.xlsx')
+    df_test = pd.read_excel('data/leak_test.xlsx')
 
     X_train = df_train.loc[:, df_train.columns != 'leak_link']
     y_train = df_train['leak_link']
-    
+        
     X_test = df_test.loc[:, df_test.columns != 'leak_link']
     y_test = df_test['leak_link']
 
     #X_train[:, 0:num_sensors], X_train[:, num_sensors:] = X_train[:, num_sensors:].copy(), X_train[:, 0:num_sensors].copy()
     #X_test[:, 0:num_sensors], X_test[:, num_sensors:] = X_test[:, num_sensors:].copy(), X_test[:, 0:num_sensors].copy()
 
-
-    '''
-    DATA_FILES = [
-        'data/data_no_leak.xlsx',
-        'data/data_leak_1.xlsx',
-        'data/data_leak_2.xlsx',
-        'data/data_leak_3.xlsx',
-    ]
-
-    train_fraction = 0.995
-    test_fraction = 0.005
-
-    columns_to_use = [
-        'FM01_flow', 'FM02_flow', 'FM03_flow', 'FM05_flow', 'FM06_flow', 'FM08_flow', 'FM09_flow', 'FM11_flow', 'FM13_flow',
-        'FM01_head', 'FM02_head', 'FM03_head', 'FM05_head', 'FM06_head', 'FM08_head', 'FM09_head', 'FM11_head', 'FM13_head',
-    ]
-
-    # Train data
-    dataframes = []
-    for data_file in DATA_FILES:
-        df = load_data(data_file)
-        dataframes.append(df)
-
-    dataframes = clean_dataframes(
-        dataframes,
-        columns_to_use=columns_to_use,
-    )
-
-    num_train_pr_dataframe = []
-    num_test_pr_dataframe = []
-    train_dataframes = []
-    test_dataframes = []
-    for df in dataframes:
-        num_train_pr_dataframe.append(int(train_fraction*df.shape[0]))
-        train_dataframes.append(df.iloc[:int(train_fraction*df.shape[0]), :])
-
-        num_test_pr_dataframe.append(int(test_fraction*df.shape[0]))
-        test_dataframes.append(df.iloc[-int(test_fraction*df.shape[0]):, :])
-
-    X_train = pd.concat(train_dataframes, ignore_index=True).values
-    X_test = pd.concat(test_dataframes, ignore_index=True).values
-
-    # Create targets
-    y_train = []
-    y_test = []
-    for i in range(len(num_train_pr_dataframe)):
-        y_train += [i]*num_train_pr_dataframe[i]
-        y_test += [i]*num_test_pr_dataframe[i]
-
-    y_train = np.array(y_train)
-    y_test = np.array(y_test)
-    '''
 
     print(f'X_train: {X_train.shape}')
     print(f'X_test: {X_test.shape}')
@@ -146,7 +51,6 @@ def main():
 
     prerna_model_args = {
         'model_args': {},
-        'classifier': 'logistic_regression',
         'verbose': False,
     }
 
@@ -159,11 +63,10 @@ def main():
         'class_weight': 'balanced',
         'max_iter': 5000
     }
-        
-    svc_args = {
-        'C': 1e-2,
-        'kernel': 'rbf',
-        'gamma': 1e-2,
+    
+    knn_args = {
+        'n_neighbors': 5,
+        'weights': 'distance',
     }
 
     rf_args = {
@@ -172,6 +75,25 @@ def main():
         'min_samples_split': 2,
         'min_samples_leaf': 1,
     }
+
+    MLPClassifier_args = {
+        'hidden_layer_sizes': (100, 100, 100),
+        'activation': 'relu',
+        'solver': 'adam',
+        'alpha': 1e-4,
+        'batch_size': 2048,
+        'learning_rate': 'adaptive',
+        'learning_rate_init': 1e-3,
+        'max_iter': 500,
+        'shuffle': True,
+        'random_state': 1,
+        'tol': 1e-4,
+        'verbose': False,
+        'early_stopping': True,
+        'validation_fraction': 0.1,
+    }
+
+
 
     reconstruction_WAE_args = {
         'encoder_args': {
@@ -184,13 +106,14 @@ def main():
             'num_pars': 4
         },
         'NN_train_args': {
-            'epochs': 5,
-            'batch_size': 2048,
+            'epochs': 500,
+            'batch_size': 2,
             'lr': 5e-3,
-            'weight_decay': 1e-10,
+            'weight_decay': 1e-8,
             'loss_fn': nn.MSELoss(),
         },
         'device': 'cpu'
+        
     }
 
     latent_WAE_args = {
@@ -203,48 +126,122 @@ def main():
             'hidden_dims': [8, 10, 12],
         },
         'NN_train_args': {
-            'epochs': 5,
-            'batch_size': 2048,
+            'epochs': 500,
+            'batch_size': 1024,
             'lr': 5e-3,
-            'weight_decay': 1e-10,
+            'weight_decay': 1e-8,
             'loss_fn': nn.MSELoss(),
         },
         'device': 'cpu'
     }
 
-    linear_regression_args = {}
-
     model_list = [
-        PrernaModel(**prerna_model_args),
-        #LogisticRegression(**logistic_regression_args),
-        #SVC(**svc_args),
-        #RandomForestClassifier(**rf_args),
-        #SupervisedReconstructionLeakDetector(**reconstruction_WAE_args),
-        #SupervisedLatentLeakDetector(**latent_WAE_args),
-        #SupervisedLinearRegressionLeakDetector(**linear_regression_args),
-        #SupervisedPolynomialRegressionLeakDetector(**linear_regression_args),
+        ClassifierMajorityVote(MLPClassifier(**MLPClassifier_args)),
+        PrernaModel(**prerna_model_args, classifier='logistic_regression'),
+        PrernaModel(**prerna_model_args, classifier='random_forest'),
+        ClassifierMajorityVote(LogisticRegression(**logistic_regression_args)),
+        ClassifierMajorityVote(KNeighborsClassifier(**knn_args)),
+        ClassifierMajorityVote(RandomForestClassifier(**rf_args)),
+        SupervisedReconstructionLeakDetector(**reconstruction_WAE_args),
+        SupervisedLatentLeakDetector(**latent_WAE_args, classifier='random_forest'),
+        SupervisedLatentLeakDetector(**latent_WAE_args, classifier='logistic_regression'),
     ]
 
-    for model in model_list:
-        pipeline = Pipeline([
-            ('model', model),
-        ])
+    model_names = [
+        'MLP Classifier',
+        'Regression + Logistic Regression',
+        'Regression + Random Forest Classifier',
+        'Logistic Regression',
+        'KNN Classifier',
+        'Random Forest Classifier',
+        'WAE Reconstruction Model',
+        'WAE + Random Forest Classifier',
+        'WAE + Logistic Regression',
+    ]
 
-        pipeline.fit(
+    model_save_names = [
+        'MLP_Classifier',
+        'Regression_Logistic_Regression',
+        'Regression_Random_Forest_Classifier',
+        'Logistic_Regression',
+        'KNN_Classifier',
+        'Random_Forest_Classifier',
+        'WAE_Reconstruction_Model',
+        'WAE_Latent_Model_Random_Forest_Classifier',
+        'WAE_Latent_Model_Logistic_Regression',
+    ]
+    
+    '''
+    random_ids = np.random.choice(
+        X_train.shape[0], 
+        size=100, 
+        replace=False
+    )
+    X_train = X_train.iloc[random_ids, :]
+    y_train = y_train.iloc[random_ids]
+    '''
+    
+    
+
+    num_test_samples = 3000
+    num_samples_pr_test = 300
+    
+    for model in model_list:
+
+        model.fit(
             X=X_train,
             y=y_train,
         )
 
-        preds = pipeline.predict(
-            X=X_test,
-        )
-        
-        cm = confusion_matrix(y_test, preds)
-        print(f'{model}: Accuracy: {accuracy_score(y_test, preds):0.3f}')
+    preds = {key: [] for key in model_names}
+    true_vals = []
+    for leak in y_test.unique():
 
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Leak 0', 'Leak 1', 'Leak 2', 'Leak 3'])
+        X_test_leak = X_test[y_test==leak]
+        y_test_leak = y_test[y_test==leak]
+
+        true_vals_leak = np.ones((num_test_samples,))*leak
+        true_vals_leak = true_vals_leak.astype(int)
+        true_vals.append(true_vals_leak)
+
+        for i in range(num_test_samples):
+
+            random_ids = np.random.choice(
+                X_test_leak.shape[0], 
+                size=num_samples_pr_test, 
+                replace=False
+            )
+
+            X_test_batch = X_test_leak.iloc[random_ids, :]
+
+            for (model, model_name, model_save_name) in zip(model_list, model_names, model_save_names):
+                
+                preds_leak = model.predict(
+                    X=X_test_batch,
+                )
+
+                preds[model_name].append(preds_leak)
+    
+
+    true_vals = np.concatenate(true_vals, axis=0)
+
+    for (model_name, model_save_name) in zip(model_names, model_save_names):
+        preds[model_name] = np.concatenate(preds[model_name], axis=0)
+        
+        print(f'{model_name}: Accuracy: {accuracy_score(true_vals, preds[model_name]):0.3f}')
+
+        cm = confusion_matrix(true_vals, preds[model_name])
+
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['No leak', 'Leak 1', 'Leak 2', 'Leak 3'])
         disp.plot()
+        plt.title(f'{model_name}, Accuracy: {accuracy_score(true_vals, preds[model_name]):0.3f}')
+                    
+        plt.savefig(f'figures/confusion_matrix_{model_save_name}.pdf')
+
         plt.show()
+
+        
+
         
 
 if __name__ == '__main__':

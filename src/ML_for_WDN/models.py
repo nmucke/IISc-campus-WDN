@@ -15,6 +15,61 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from ML_for_WDN.WAE import WassersteinAutoencoder
 from ML_for_WDN.NN_utils import train_WAE
 
+class ClassifierMajorityVote(BaseEstimator, ClassifierMixin):
+    
+        def __init__(
+            self, 
+            classifier
+        ):
+            
+            self.classifier = classifier
+            
+        
+        def __str__(self) -> str:
+            return self.classifier.__str__()
+    
+        def fit(
+            self, 
+            X: pd.DataFrame,
+            y: pd.DataFrame = None,
+        ):
+            
+            #self.scaler = sklearn.preprocessing.StandardScaler()
+            self.scaler = sklearn.preprocessing.MinMaxScaler()
+
+            X = X.to_numpy()
+
+            X = self.scaler.fit_transform(X)
+
+            if y is not None:
+                self.classifier.fit(X, y)
+                self.anomaly_detection_mode = False
+            else:
+                self.classifier.fit(X)
+                self.anomaly_detection_mode = True
+    
+            return self
+        
+        def predict(self, X: pd.DataFrame):
+            
+            X = X.to_numpy()
+
+            X = self.scaler.transform(X)
+            
+            predictions = self.classifier.predict(X)
+
+            if self.anomaly_detection_mode:
+                predictions = predictions.mean()
+                if predictions > 0.0:
+                    predictions = 1
+                else:
+                    predictions = -1
+            else:
+                predictions = np.array([np.argmax(np.bincount(predictions))])
+
+            return predictions
+            
+
 class UnsupervisedLeakDetector(BaseEstimator, ClassifierMixin):
 
     def __init__(
@@ -171,9 +226,17 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
 
     def fit(
         self, 
-        X: np.ndarray,
-        y: np.ndarray,
+        X: pd.DataFrame,
+        y: pd.DataFrame,
     ):
+        
+        X = X.to_numpy()
+        y = y.to_numpy()
+
+
+        self.scaler = sklearn.preprocessing.StandardScaler()
+
+        X = self.scaler.fit_transform(X)
         
         self.encoder_args['input_dim'] = X.shape[1]
         self.decoder_args['output_dim'] = X.shape[1]
@@ -216,7 +279,11 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
 
 
     
-    def predict(self, X: np.ndarray):
+    def predict(self, X: pd.DataFrame):
+
+        X = X.to_numpy()
+
+        X = self.scaler.transform(X)
 
         self.model.eval()
 
@@ -246,7 +313,9 @@ class SupervisedReconstructionLeakDetector(BaseEstimator, ClassifierMixin):
         # Get leak location with lowest reconstruction error
         _, leak_location_indices = torch.min(leak_location_loss, dim=1)
 
-        return leak_location_indices.detach().numpy()
+        predictions = np.array([np.argmax(np.bincount(leak_location_indices.detach().numpy()))])
+
+        return predictions
     
 
 class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
@@ -257,6 +326,7 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
         decoder_args: dict,
         NN_train_args: dict,
         device: str,
+        classifier: str = 'logistic_regression',
         verbose: bool = False,
     ):
         
@@ -265,16 +335,25 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
         self.NN_train_args = NN_train_args
         self.device = device
         self.verbose = verbose
+
+        self.classifier = classifier
     
     def __str__(self) -> str:
         return 'SupervisedLatentLeakDetector'
 
     def fit(
         self, 
-        X: np.ndarray,
-        y: np.ndarray,
+        X: pd.DataFrame,
+        y: pd.DataFrame,
     ):
         
+        X = X.to_numpy()
+        y = y.to_numpy()
+
+        self.scaler = sklearn.preprocessing.StandardScaler()
+
+        X = self.scaler.fit_transform(X)
+                
         self.encoder_args['input_dim'] = X.shape[1]
         self.decoder_args['output_dim'] = X.shape[1]
 
@@ -315,17 +394,30 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
 
 
         self.latents = self.model.encoder(torch.tensor(X, dtype=torch.float32)).detach().numpy()
-        logistic_regression_args = {
-            'penalty': 'l2',
-            'C': 1e-2,
-            'solver': 'lbfgs',
-            'max_iter': 1000,
-        }
-        self.latent_classifier = LogisticRegression(**logistic_regression_args)
+        
+        if self.classifier == 'logistic_regression':
+            logistic_regression_args = {
+                'penalty': 'l2',
+                'C': 1e-2,
+                'solver': 'lbfgs',
+                'max_iter': 1000,
+            }
+            self.latent_classifier = LogisticRegression(**logistic_regression_args)
+        elif self.classifier == 'random_forest':
+            random_forest_args = {
+                'n_estimators': 100,
+                'max_depth': 10,
+            }
+            self.latent_classifier = sklearn.ensemble.RandomForestClassifier(**random_forest_args)
+        
         self.latent_classifier.fit(self.latents, y)
 
     
-    def predict(self, X: np.ndarray):
+    def predict(self, X: pd.DataFrame):
+
+        X = X.to_numpy()
+
+        X = self.scaler.transform(X)
 
         self.model.eval()
 
@@ -335,7 +427,10 @@ class SupervisedLatentLeakDetector(BaseEstimator, ClassifierMixin):
         # Predict leak location
         leak_location_indices = self.latent_classifier.predict(latents)
 
-        return leak_location_indices#.detach().numpy()
+
+        predictions = np.array([np.argmax(np.bincount(leak_location_indices))])
+
+        return predictions
     
 
 

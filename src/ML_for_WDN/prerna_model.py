@@ -9,78 +9,10 @@ import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 from scipy.stats import ks_2samp
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from scipy.stats import norm
 
 
-def training_data(df,link_names,head_names):
-    
-    data_flow = np.array(df[link_names])  # convering to litres per sec 
-    data_head = np.array(df[head_names])
-    
-
-    train_out= data_head[:,0] - data_head[:,1] # deltaH
-    train_in = data_flow                       # flow1, flow2
-    
-    return train_in, train_out
-
-def data_in_out(sensor_pair,df, sensor_list):
-    
-    h1= sensor_list[sensor_pair[0]-1][0]
-    h2= sensor_list[sensor_pair[1]-1][0]
-    f1= sensor_list[sensor_pair[0]-1][1]
-    f2= sensor_list[sensor_pair[1]-1][1]
-    
-    link_name = ['Link_flow'+str(f1),'Link_flow'+str(f2)] 
-    node_name = ['Node_head'+str(h1),'Node_head'+str(h2)]
-    
-    data_in, data_out = training_data(df,link_name,node_name)
-    
-    return data_in, data_out 
-
-def datafortrees(
-    lin_models,
-    numcases,
-    df_recent,
-    sample_len,
-    casetype, 
-    colnames,
-    combs
-):
-    
-    df_cases = pd.DataFrame(columns=colnames)
-    fracsize_recent=0.3
-    
-    fracsize_reference = fracsize_recent#sample_len/len(df_train_class_model_ref)
-    
-    # first loop to randomly select a sample test set
-    for i in range(numcases):
-        df_recent_sample = df_recent.sample(frac=fracsize_recent)
-        df_reference_sample = df_train_class_model_ref.sample(frac=fracsize_reference)
-        
-        # second loop to cover all possible leak combinations
-        comb_data = []
-        for comb in combs:
-            xtest_rec, ytest_rec = data_in_out(comb,df_recent_sample)
-                
-            xtest_ref, ytest_ref = data_in_out(comb,df_reference_sample)
-            
-
-            # load the linear regression model, make predictions and store results
-            model_name = 'linmodel'+str(comb[0])+str(comb[1])+'.pkl'
-
-            lin_model = lin_models[model_name]
-
-            pred_ref = lin_model.predict(xtest_ref).reshape(-1)
-            pred_rec = lin_model.predict(xtest_rec).reshape(-1)
-            error_ref = (ytest_ref-pred_ref)
-            error_rec = (ytest_rec-pred_rec)
-            stat, pval = ks_2samp(error_ref,error_rec) #to test the model runs fine
-            comb_list = [np.mean(error_ref), np.mean(error_rec),stat,pval]            
-            comb_data.extend(comb_list)
-            
-        comb_series = pd.Series(comb_data,index=df_cases.columns)    
-        df_cases = df_cases.append(comb_series,ignore_index=True)
-      
-    return df_cases
 
 class PrernaModel(BaseEstimator, ClassifierMixin):
     
@@ -92,6 +24,10 @@ class PrernaModel(BaseEstimator, ClassifierMixin):
         ) -> None:
             
             self.model_args = model_args
+            self.window_size = model_args.get('window_size')
+            if self.window_size is None:
+                self.window_size = 50
+
             self.classifier = classifier
             self.verbose = verbose
     
@@ -109,6 +45,7 @@ class PrernaModel(BaseEstimator, ClassifierMixin):
             
             flowrate_1 = X[self.link_cols[sensor_1]]
             flowrate_2 = X[self.link_cols[sensor_2]]
+
             
             return np.array([flowrate_1, flowrate_2]).T
     
@@ -163,12 +100,23 @@ class PrernaModel(BaseEstimator, ClassifierMixin):
             # Training the classifier model
             
             if self.classifier == 'logistic_regression':
-                self.classifier_model = LogisticRegression()
+                logistic_regression_args = {
+                    'penalty': 'l2',
+                    'C': 1e-2,
+                    'solver': 'lbfgs',
+                    'max_iter': 1000,
+                }
+                self.classifier_model = LogisticRegression(**logistic_regression_args)
             elif self.classifier == 'random_forest':
-                self.classifier_model = RandomForestClassifier()
+                random_forest_args = {
+                    'n_estimators': 100,
+                    'max_depth': 10,
+                }
+                self.classifier_model = RandomForestClassifier(**random_forest_args)
 
             # Get error distribution on non-leak data
-            no_leak_error_distributions = {}
+            no_leak_error = {}
+            self.no_leak_error_distributions = {}
             for comb in self.combs:
                 x_train = self._get_flowrates_for_sensor_pair(X_no_leak, comb)
                 y_train = self._get_headloss_for_sensor_pair(X_no_leak, comb)
@@ -177,36 +125,81 @@ class PrernaModel(BaseEstimator, ClassifierMixin):
                 y_pred = y_pred.reshape(-1)
                 y_train = y_train.reshape(-1)
                 error = y_train - y_pred
-                no_leak_error_distributions[lin_model_name] = error
+                error = np.convolve(error, np.ones(self.window_size)/self.window_size, 'same')
+                no_leak_error[lin_model_name] = error
 
-            pbar = tqdm(
-                self.combs,
-                total=len(self.combs)
+                self.no_leak_error_distributions[lin_model_name] = norm(
+                    np.mean(error),
+                    np.std(error)
+                )
+
+            classification_training_df = pd.DataFrame(
+                columns=self.combs + ['label'],
             )
-            for comb in pbar:
-                x_train = self._get_flowrates_for_sensor_pair(X, comb)
-                y_train = self._get_headloss_for_sensor_pair(X, comb)
-                
-                lin_model_name = str(comb[0])+str(comb[1])
-                lin_model = self.lin_models[lin_model_name]
-                y_pred = lin_model.predict(x_train)
+            for leak in y.unique():
+                leak = int(leak)
+                leak_classification_training_df = pd.DataFrame(
+                    columns=self.combs + ['label']
+                )
+                for comb in self.combs:
+                    x_train = self._get_flowrates_for_sensor_pair(X[y==leak], comb)
+                    y_train = self._get_headloss_for_sensor_pair(X[y==leak], comb)
+                    
+                    lin_model_name = str(comb[0])+str(comb[1])
+                    lin_model = self.lin_models[lin_model_name]
+                    y_pred = lin_model.predict(x_train)
 
-                y_pred = y_pred.reshape(-1)
-                y_train = y_train.reshape(-1)
-                error = y_train - y_pred
+                    y_pred = y_pred.reshape(-1)
+                    y_train = y_train.reshape(-1)
+                    error = y_train - y_pred
 
-                stat,pval = ks_2samp(
-                    no_leak_error_distributions[lin_model_name],
-                    error
-                ) 
-                pdb.set_trace()
+                    #error = np.convolve(error, np.ones(self.window_size)/self.window_size, 'same')
 
+                    leak_classification_training_df[comb] = error
+
+                leak_classification_training_df['label'] = leak
+
+                classification_training_df = classification_training_df.append(
+                    leak_classification_training_df,
+                    ignore_index=True
+                )
+            classification_training_df['label'] = classification_training_df['label'].astype(int)
             
-            
+            self.classifier_model.fit(
+                classification_training_df[self.combs],
+                classification_training_df['label']
+            )
 
-                
-             
-
+            return self
 
         def predict(self, X: pd.DataFrame) -> np.ndarray:
-            pass
+            
+            num_sensors = len(self.head_cols)
+            self.combs = list(combinations(range(0,num_sensors),2))
+            
+            classification_df = pd.DataFrame(
+                columns=self.combs
+            )
+            for comb in self.combs:
+                flowrates = self._get_flowrates_for_sensor_pair(X, comb)
+                head_loss = self._get_headloss_for_sensor_pair(X, comb)
+
+                lin_model_name = str(comb[0])+str(comb[1])
+                head_loss_pred = self.lin_models[lin_model_name].predict(flowrates)
+                head_loss_pred = head_loss_pred.reshape(-1)
+
+                head_loss = head_loss.reshape(-1)
+
+                error = head_loss - head_loss_pred
+
+                #error = np.convolve(error, np.ones(self.window_size)/self.window_size, 'same')
+
+                classification_df[comb] = error
+                
+            predictions = self.classifier_model.predict(classification_df)
+
+            # pick the leak with the majority vote
+            predictions = np.array([np.argmax(np.bincount(predictions))])
+                                  
+
+            return predictions

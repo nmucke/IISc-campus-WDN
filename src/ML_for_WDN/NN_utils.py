@@ -75,7 +75,7 @@ def train_WAE(
             latent_loss = MMD(latent, z, kernel='rbf', device=device)
 
             output = model.decoder(latent, batch_pars)
-            loss = loss_fn(output, batch_data) + 1e-6*latent_loss
+            loss = loss_fn(output, batch_data) + 1e-3*latent_loss
             
             loss.backward()
             optimizer.step()
