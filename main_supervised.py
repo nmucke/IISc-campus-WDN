@@ -31,8 +31,11 @@ from ML_for_WDN.models import (
 def main():
 
 
-    df_train = pd.read_excel('data/leak_train.xlsx')
-    df_test = pd.read_excel('data/leak_test.xlsx')
+    #df_train = pd.read_excel('data/leak_train.xlsx')
+    #df_test = pd.read_excel('data/leak_test.xlsx')
+
+    df_train = pd.read_csv('data/leak_train_IISc - Filter.csv')
+    df_test = pd.read_csv('data/leak_test_IISc - Filter.csv')
 
     X_train = df_train.loc[:, df_train.columns != 'leak_link']
     y_train = df_train['leak_link']
@@ -136,39 +139,39 @@ def main():
     }
 
     model_list = [
-        ClassifierMajorityVote(MLPClassifier(**MLPClassifier_args)),
+        #ClassifierMajorityVote(MLPClassifier(**MLPClassifier_args)),
         PrernaModel(**prerna_model_args, classifier='logistic_regression'),
         PrernaModel(**prerna_model_args, classifier='random_forest'),
         ClassifierMajorityVote(LogisticRegression(**logistic_regression_args)),
         ClassifierMajorityVote(KNeighborsClassifier(**knn_args)),
         ClassifierMajorityVote(RandomForestClassifier(**rf_args)),
-        SupervisedReconstructionLeakDetector(**reconstruction_WAE_args),
-        SupervisedLatentLeakDetector(**latent_WAE_args, classifier='random_forest'),
-        SupervisedLatentLeakDetector(**latent_WAE_args, classifier='logistic_regression'),
+        #SupervisedReconstructionLeakDetector(**reconstruction_WAE_args),
+        #SupervisedLatentLeakDetector(**latent_WAE_args, classifier='random_forest'),
+        #SupervisedLatentLeakDetector(**latent_WAE_args, classifier='logistic_regression'),
     ]
 
     model_names = [
-        'MLP Classifier',
+        #'MLP Classifier',
         'Regression + Logistic Regression',
         'Regression + Random Forest Classifier',
         'Logistic Regression',
         'KNN Classifier',
         'Random Forest Classifier',
-        'WAE Reconstruction Model',
-        'WAE + Random Forest Classifier',
-        'WAE + Logistic Regression',
+        #'WAE Reconstruction Model',
+        #'WAE + Random Forest Classifier',
+        #'WAE + Logistic Regression',
     ]
 
     model_save_names = [
-        'MLP_Classifier',
+        #'MLP_Classifier',
         'Regression_Logistic_Regression',
         'Regression_Random_Forest_Classifier',
         'Logistic_Regression',
         'KNN_Classifier',
         'Random_Forest_Classifier',
-        'WAE_Reconstruction_Model',
-        'WAE_Latent_Model_Random_Forest_Classifier',
-        'WAE_Latent_Model_Logistic_Regression',
+        #'WAE_Reconstruction_Model',
+        #'WAE_Latent_Model_Random_Forest_Classifier',
+        #'WAE_Latent_Model_Logistic_Regression',
     ]
     
     '''
@@ -186,6 +189,7 @@ def main():
     num_test_samples = 3000
     num_samples_pr_test = 300
     
+    # Train models
     for model in model_list:
 
         model.fit(
@@ -193,29 +197,39 @@ def main():
             y=y_train,
         )
 
+    # Test models
     preds = {key: [] for key in model_names}
     true_vals = []
+
+    # Loop over leak location
     for leak in y_test.unique():
 
+        # Get test samples for leak location
         X_test_leak = X_test[y_test==leak]
         y_test_leak = y_test[y_test==leak]
 
+        # Create true labels for leak location
         true_vals_leak = np.ones((num_test_samples,))*leak
         true_vals_leak = true_vals_leak.astype(int)
         true_vals.append(true_vals_leak)
 
+        # Loop over number of test samples
         for i in range(num_test_samples):
 
+            # Get random samples from test set
             random_ids = np.random.choice(
                 X_test_leak.shape[0], 
                 size=num_samples_pr_test, 
                 replace=False
             )
 
+            # Get sensor data for random samples
             X_test_batch = X_test_leak.iloc[random_ids, :]
 
+            # Loop over models
             for (model, model_name, model_save_name) in zip(model_list, model_names, model_save_names):
                 
+                # Get predictions
                 preds_leak = model.predict(
                     X=X_test_batch,
                 )
@@ -225,6 +239,7 @@ def main():
 
     true_vals = np.concatenate(true_vals, axis=0)
 
+    # Print accuracy and plot confusion matrix
     for (model_name, model_save_name) in zip(model_names, model_save_names):
         preds[model_name] = np.concatenate(preds[model_name], axis=0)
         

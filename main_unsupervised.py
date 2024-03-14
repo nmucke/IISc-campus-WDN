@@ -27,8 +27,11 @@ from ML_for_WDN.models import (
 
 def main():
 
-    X_train = pd.read_excel('data/leak_train.xlsx')
-    df_test = pd.read_excel('data/leak_test.xlsx')
+    #X_train = pd.read_excel('data/leak_train.xlsx')
+    #df_test = pd.read_excel('data/leak_test.xlsx')
+
+    df_train = pd.read_csv('data/leak_train_IISc - Filter.csv')
+    df_test = pd.read_csv('data/leak_test_IISc - Filter.csv')
 
     #df_train = pd.concat(pd.read_excel('data/leak_train.xlsx', sheet_name=None), ignore_index=True)
     #df_test = pd.concat(pd.read_excel('data/leak_test.xlsx', sheet_name=None), ignore_index=True)
@@ -98,15 +101,18 @@ def main():
     num_test_samples = 3000
     num_samples_pr_test = 30
     
+    # Train models
     for model in model_list:
             
         model.fit(
             X=X_train,
         )
                      
-
+    # Test models
     preds = {key: [] for key in model_names}
     true_vals = []
+
+    # Loop over leak and no leak
     for leak in y_test.unique():
 
         X_test_leak = X_test[y_test==leak]
@@ -118,17 +124,23 @@ def main():
         true_vals_leak = true_vals_leak.astype(int)
         true_vals.append(true_vals_leak)
 
+        # Loop over test samples
         for i in range(num_test_samples):
 
+            # Get random samples from test set
             random_ids = np.random.choice(
                 X_test_leak.shape[0], 
                 size=num_samples_pr_test, 
                 replace=False
             )
 
+            # Get sensor data for random samples
             X_test_batch = X_test_leak.iloc[random_ids, :]
 
+            # Loop over models
             for (model, model_name, model_save_name) in zip(model_list, model_names, model_save_names):
+
+                # Get predictions
                 preds_leak = model.predict(
                     X=X_test_batch,
                 )
@@ -138,6 +150,7 @@ def main():
 
     true_vals = np.concatenate(true_vals, axis=0)
 
+    # Plot confusion matrices
     for (model_name, model_save_name) in zip(model_names, model_save_names):
         preds[model_name] = np.array(preds[model_name])
 
